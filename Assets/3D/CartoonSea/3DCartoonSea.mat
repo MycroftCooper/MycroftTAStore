@@ -7,7 +7,7 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: 3DCartoonWater
+  m_Name: 3DCartoonSea
   m_Shader: {fileID: 4800000, guid: 5ac13252f14137b489e5ea459bc791b9, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0

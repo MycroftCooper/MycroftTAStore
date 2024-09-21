@@ -1,7 +1,8 @@
-Shader "3D/Cartoon/Water"
+Shader "3D/Cartoon/Sea"
 {
     Properties
     {
+        _CustomTime ("Custom Time", Vector) = (0, 0, 0, 0)
         _ShallowWaterColor ("Shallow Water Color", Color) = (0.0, 0.8, 1.0, 0.5)// 浅水颜色
         _DeepWaterColor ("Deep Water Color", Color) = (0.0, 0.1, 0.5, 1.0)      // 深水颜色
         _MaxDepth ("Max Depth", Float) = 10                                       // 最深水深
@@ -34,27 +35,28 @@ Shader "3D/Cartoon/Water"
 
             #define SMOOTHSTEP_AA 0.01
 
-            float4 _ShallowWaterColor;
-            float4 _DeepWaterColor;
-            float _MaxDepth;
-            sampler2D _CameraDepthTexture; // 相机深度纹理
-            sampler2D _CameraNormalsTexture; // 相机法线纹理
+            uniform float4 _CustomTime;
+            uniform float4 _ShallowWaterColor;
+            uniform float4 _DeepWaterColor;
+            uniform float _MaxDepth;
+            uniform sampler2D _CameraDepthTexture; // 相机深度纹理
+            uniform sampler2D _CameraNormalsTexture; // 相机法线纹理
 
-            float4 _FoamColor;
-            sampler2D _SurfaceNoise;
-            float4 _SurfaceNoise_ST;
-            float _SurfaceNoiseCutoff;
-            float _FoamMaxDistance;
-            float _FoamMinDistance;
-            float2 _SurfaceNoiseScroll;
+            uniform float4 _FoamColor;
+            uniform sampler2D _SurfaceNoise;
+            uniform float4 _SurfaceNoise_ST;
+            uniform float _SurfaceNoiseCutoff;
+            uniform float _FoamMaxDistance;
+            uniform float _FoamMinDistance;
+            uniform float2 _SurfaceNoiseScroll;
 
-            sampler2D _SurfaceDistortion;
-            float4 _SurfaceDistortion_ST;
-            float _SurfaceDistortionAmount;
+            uniform sampler2D _SurfaceDistortion;
+            uniform float4 _SurfaceDistortion_ST;
+            uniform float _SurfaceDistortionAmount;
 
-            float _WaveSpeed;
-            float _WaveHeight;
-            float _WaveDensity;
+            uniform float _WaveSpeed;
+            uniform float _WaveHeight;
+            uniform float _WaveDensity;
 
             struct appdata
             {
@@ -75,7 +77,7 @@ Shader "3D/Cartoon/Water"
             float4 calculateWavePos(appdata v)
             {
                 // 计算顶点动画的噪声波动效果
-                float waveSpeed = _Time.y * _WaveSpeed;
+                float waveSpeed = _CustomTime.y * _WaveSpeed;
                 float waveHeight = _WaveHeight;
 
                 // 通过采样 _SurfaceNoise 来计算噪声
@@ -125,7 +127,7 @@ Shader "3D/Cartoon/Water"
 
             float4 calculateWaveColorByDepth(v2f i, float deep)
             {
-                float2 uv = float2(i.noiseUV.x + _Time.y * _SurfaceNoiseScroll.x, i.noiseUV.y + _Time.y * _SurfaceNoiseScroll.y);
+                float2 uv = float2(i.noiseUV.x + _CustomTime.y * _SurfaceNoiseScroll.x, i.noiseUV.y + _CustomTime.y * _SurfaceNoiseScroll.y);
                 float2 distortSample = (tex2D(_SurfaceDistortion, i.distortUV).xy * 2 - 1) * _SurfaceDistortionAmount;
                 uv += distortSample;
                 float surfaceNoiseSample = tex2D(_SurfaceNoise, uv).r;
