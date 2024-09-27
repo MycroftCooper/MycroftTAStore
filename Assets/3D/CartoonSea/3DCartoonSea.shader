@@ -20,6 +20,9 @@ Shader "3D/Cartoon/Sea"
         _WaveSpeed ("Wave Speed", Float) = 1.0
         _WaveHeight ("Wave Height", Float) = 0.5
         _WaveDensity ("Wave Density", Float) = 1
+        
+        _SurfaceOutputData("Surface Output Data", 2D) = "white" {} // 水面信息输入(r,g,b法线,a高度)
+        _SurfaceInputData("Surface Input Data", 2D) = "white" {} // 水面信息输出(r,g,b法线,a高度)
     }
     SubShader
     {
@@ -58,6 +61,9 @@ Shader "3D/Cartoon/Sea"
             uniform float _WaveHeight;
             uniform float _WaveDensity;
 
+            Texture2D _SurfaceInputData : register(t0);
+            RWTexture2D<float4> _SurfaceOutputData : register(u0);
+
             struct appdata
             {
                 float4 vertex : POSITION;
@@ -74,7 +80,7 @@ Shader "3D/Cartoon/Sea"
                 float2 distortUV : TEXCOORD1;
             };
 
-            float4 calculateWavePos(appdata v)
+            float4 calculateSurfacePos(appdata v)
             {
                 // 计算顶点动画的噪声波动效果
                 float waveSpeed = _CustomTime.y * _WaveSpeed;
@@ -90,6 +96,42 @@ Shader "3D/Cartoon/Sea"
                 float4 pos = UnityObjectToClipPos(v.vertex);
                 return pos;
             }
+
+            void calculateOutputSurfaceData(v2f v)
+            {
+                float height = v.pos.y;
+                // 计算相邻顶点的高度（使用UV偏移获取）
+                int w, h;
+                _SurfaceOutputData.GetDimensions(w, h);
+                int2 texelIndex = (int2)(v.noiseUV * float2(w, h));
+                float4 surfaceData;
+
+                // 左侧
+                surfaceData = _SurfaceOutputData.Load(texelIndex + int2(-1, 0)); 
+                float heightLeft = surfaceData.a;
+
+                // 右侧
+                surfaceData = _SurfaceOutputData.Load(texelIndex + int2(1, 0)); 
+                float heightRight = surfaceData.a;
+
+                // 上侧
+                surfaceData = _SurfaceOutputData.Load(texelIndex + int2(0, -1)); 
+                float heightUp = surfaceData.a;
+
+                // 下侧
+                surfaceData = _SurfaceOutputData.Load(texelIndex + int2(0, 1)); 
+                float heightDown = surfaceData.a;
+
+                // 计算法线
+                float3 normal = normalize(float3(
+                    heightLeft - heightRight, // X轴法线
+                    1, // Y轴（可调）
+                    heightUp - heightDown // Z轴法线
+                ));
+                
+                float4 outputData = float4(normal * 0.5 + 0.5, height); // 法线范围在[0,1]
+                _SurfaceOutputData[v.noiseUV] = outputData;
+            }
             
             v2f vert (appdata v)
             {
@@ -101,7 +143,9 @@ Shader "3D/Cartoon/Sea"
                 o.distortUV = TRANSFORM_TEX(v.uv, _SurfaceDistortion);
                 o.viewNormal = COMPUTE_VIEW_NORMAL;
 
-                o.pos = calculateWavePos(v);
+                o.pos = calculateSurfacePos(v);
+
+                calculateOutputSurfaceData(o);
                 return o;
             }
 
