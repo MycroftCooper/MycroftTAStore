@@ -60,8 +60,8 @@ Shader "3D/Cartoon/Sea"
             uniform float _WaveHeight;
             uniform float _WaveDensity;
 
-            Texture2D _SurfaceInputData : register(t0);
-
+            sampler2D _SurfaceInputData;
+            
             struct appdata
             {
                 float4 vertex : POSITION;
@@ -81,16 +81,18 @@ Shader "3D/Cartoon/Sea"
             v2f vert (appdata v)
             {
                 v2f o;
-                o.pos = UnityObjectToClipPos(v.vertex);
-                
-                o.screenPos = ComputeScreenPos(o.pos); // 获取屏幕坐标
                 o.noiseUV = TRANSFORM_TEX(v.uv, _SurfaceNoise);
+
+                // 从 ComputeShader 的输出纹理中读取波浪高度和法线
+                float4 waveData = tex2Dlod(_SurfaceInputData, float4(o.noiseUV, 0, 0));
+                float waveHeight = waveData.a; // 获取高度信息
+                v.vertex.y += waveHeight;
+                
+                // 更新顶点位置
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.screenPos = ComputeScreenPos(o.pos); // 获取屏幕坐标
                 o.distortUV = TRANSFORM_TEX(v.uv, _SurfaceDistortion);
                 o.viewNormal = COMPUTE_VIEW_NORMAL;
-
-                o.pos = calculateSurfacePos(v);
-
-                calculateOutputSurfaceData(o);
                 return o;
             }
 

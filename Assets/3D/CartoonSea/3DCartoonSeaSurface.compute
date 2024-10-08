@@ -6,8 +6,6 @@ float _WaveHeight;
 float2 _WaveDensity;
 
 Texture2D _Noise; // 噪声纹理
-
-sampler _Sampler; // 采样器
 RWTexture2D<float4> _Result;
 
 [numthreads(8,8,1)]
@@ -28,14 +26,14 @@ void CSMain (uint3 id : SV_DispatchThreadID)
 
     // 计算波浪效果
     float waveSpeed = _CustomTime.y * _WaveSpeed;
-    float noise = _Noise.SampleLevel(_Sampler, uv + waveSpeed, 0).r;
+    float noise = _Noise.Load(int3(uv + waveSpeed, 0)).r;
     float height = noise * _WaveHeight;
 
     // 计算相邻顶点的高度来计算法线
-    float heightLeft = _Noise.SampleLevel(_Sampler, uv + float2(-1 / textureResolution.x, 0), 0).r * _WaveHeight;
-    float heightRight = _Noise.SampleLevel(_Sampler, uv + float2(1 / textureResolution.x, 0), 0).r * _WaveHeight;
-    float heightUp = _Noise.SampleLevel(_Sampler, uv + float2(0, -1 / textureResolution.y), 0).r * _WaveHeight;
-    float heightDown = _Noise.SampleLevel(_Sampler, uv + float2(0, 1 / textureResolution.y), 0).r * _WaveHeight;
+    float heightLeft = _Noise.Load(int3(uv + float2(-1 / textureResolution.x, 0), 0)).r * _WaveHeight;
+    float heightRight = _Noise.Load(int3(uv + float2(1 / textureResolution.x, 0), 0)).r * _WaveHeight;
+    float heightUp = _Noise.Load(int3(uv + float2(0, -1 / textureResolution.y), 0)).r * _WaveHeight;
+    float heightDown = _Noise.Load(int3(uv + float2(0, 1 / textureResolution.y), 0)).r * _WaveHeight;
 
     // 计算法线
     float3 normal = normalize(float3(heightLeft - heightRight, 1, heightUp - heightDown));

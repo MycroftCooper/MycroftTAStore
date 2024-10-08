@@ -3,14 +3,15 @@ using UnityEngine;
 
 namespace CartoonSea3D {
     [Serializable]
-    public struct BaseWaveConfig {
-        public Color shallowWaterColor;
-        public Color deepWaterColor;
-        public Color foamColor;
+    public class BaseWaveConfig {
+        public Texture2D noiseTexture;
+        public Color shallowWaterColor = new Color(0f, 0.8f, 1.0f, 0.5f);
+        public Color deepWaterColor = new Color(0f, 0.1f, 0.5f, 1f);
+        public Color foamColor = Color.white;
         
-        public float waveSpeed;
-        public float waveHeight;
-        public float waveDensity;
+        public float waveSpeed = 0.01f;
+        public float waveHeight = 0.4f;
+        public float waveDensity = 0.5f;
     }
     
     public class SeaCtrl : MonoBehaviour {
@@ -23,7 +24,7 @@ namespace CartoonSea3D {
         private MeshRenderer _renderer;
         private Material _material;
         private MaterialPropertyBlock _mpb;
-        private RenderTexture _surfaceOutputData;
+        
 
         private void Awake() {
             _meshFilter = GetComponent<MeshFilter>();
@@ -33,6 +34,19 @@ namespace CartoonSea3D {
             _renderer.GetPropertyBlock(_mpb);
             
             InitSeaSize();
+            InitRenderTexture();
+        }
+        
+        private void InitRenderTexture() {
+            // 初始化存储波浪高度和法线信息的 RenderTexture
+            _surfaceInputData = new RenderTexture(1024, 1024, 0, RenderTextureFormat.ARGBFloat);
+            _surfaceInputData.enableRandomWrite = true;
+            _surfaceInputData.Create();
+
+            // 将 RenderTexture 传递给材质
+            _material.SetTexture(SurfaceInputData, _surfaceInputData);
+            
+            _displayTexture = new Texture2D(1024, 1024, TextureFormat.RGBA32, false);
         }
 
         Vector2 SeaSize {
@@ -70,11 +84,17 @@ namespace CartoonSea3D {
 
         void Update() {
             UpdateTime();
+            UpdateComputeShader();
+            UpdateMaterial();
         }
-
-        private static readonly int CustomTime = Shader.PropertyToID("_CustomTime");
-        private float _timer;
         
+        private void OnDestroy() {
+            if (_surfaceInputData != null) {
+                _surfaceInputData.Release();
+            }
+        }
+        
+        private float _timer;
         private void UpdateTime() {
             if (isPause) {
                 return;
@@ -84,9 +104,72 @@ namespace CartoonSea3D {
             float timeY = _timer * 2;
             float timeZ = _timer * 3;
             float timeW = 1.0f / _timer;
-            _mpb.SetVector(CustomTime, new Vector4(timeX, timeY, timeZ, timeW));
+            var t = new Vector4(timeX, timeY, timeZ, timeW);
+            _mpb.SetVector(CustomTime, t);
             _renderer.SetPropertyBlock(_mpb);
+            waveComputeShader.SetVector(CustomTime, t);
         }
+        
+        private static readonly int CustomTime = Shader.PropertyToID("_CustomTime");
+        private static readonly int SurfaceInputData = Shader.PropertyToID("_SurfaceInputData");
+        private static readonly int Noise = Shader.PropertyToID("_Noise");
+        private static readonly int WaveDensity = Shader.PropertyToID("_WaveDensity");
+        private static readonly int WaveHeight = Shader.PropertyToID("_WaveHeight");
+        private static readonly int WaveSpeed = Shader.PropertyToID("_WaveSpeed");
+        private static readonly int Size = Shader.PropertyToID("_SeaSize");
+        
+        #region 计算Shader相关
+        public ComputeShader waveComputeShader;
+        private RenderTexture _surfaceInputData;
+        
+        private static readonly int Result = Shader.PropertyToID("_Result");
+        
+        private void UpdateComputeShader() {
+            // 设置Compute Shader的参数
+            int kernel = waveComputeShader.FindKernel("CSMain");
+            waveComputeShader.SetFloat(WaveSpeed, baseWaveConfig.waveSpeed);
+            waveComputeShader.SetFloat(WaveHeight, baseWaveConfig.waveHeight);
+            waveComputeShader.SetVector(WaveDensity, new Vector2(baseWaveConfig.waveDensity, baseWaveConfig.waveDensity));
+            waveComputeShader.SetVector(CustomTime, new Vector4(_timer, _timer * 2, _timer * 3, 1.0f / _timer));
+            waveComputeShader.SetVector(Size, SeaSize);
+            
+            // 设置噪声纹理等相关数据
+            waveComputeShader.SetTexture(kernel, Noise, baseWaveConfig.noiseTexture);
+            waveComputeShader.SetTexture(kernel, Result, _surfaceInputData);
+
+            // 运行Compute Shader
+            waveComputeShader.Dispatch(kernel, _surfaceInputData.width / 8, _surfaceInputData.height / 8, 1);
+        }
+
+        private Texture2D _displayTexture; // 用于显示A通道的Texture2D
+        private void OnGUI() {
+            RenderTexture.active = _surfaceInputData; // 设置为当前RenderTexture
+            _displayTexture.ReadPixels(new Rect(0, 0, _surfaceInputData.width, _surfaceInputData.height), 0, 0); // 读取当前RenderTexture的像素数据
+            _displayTexture.Apply(); // 应用更改
+            RenderTexture.active = null; // 重置为null
+            for (int x = 0; x < _displayTexture.width; x++) {
+                for (int y = 0; y < _displayTexture.height; y++) {
+                    Color color = _displayTexture.GetPixel(x, y); // 获取当前像素的颜色
+                    // 将RGB设为0，只保留A通道值，其他通道设置为黑色
+                    _displayTexture.SetPixel(x, y, new Color(0, 0, 0, color.a));
+                }
+            }
+            _displayTexture.Apply(); // 应用更改
+            
+            GUI.DrawTexture(new Rect(0, 0, 1024, 1024), _surfaceInputData); // 可视化 RenderTexture
+        }
+
+        #endregion
+
+        #region 渲染Shader相关
+
+        private void UpdateMaterial() {
+            // 每帧更新材质中的 RenderTexture
+            _material.SetTexture(SurfaceInputData, _surfaceInputData);
+        }
+        
+        
+        #endregion
 
         // private void  SetObjOnSurface(Transform t) {
         //     // 获取物体的世界位置
