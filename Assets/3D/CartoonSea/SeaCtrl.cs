@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using Unity.Mathematics;
 using UnityEngine;
 
 namespace CartoonSea3D {
@@ -21,32 +23,13 @@ namespace CartoonSea3D {
         
         private MeshFilter _meshFilter;
         private Vector2 _meshSize;
-        private MeshRenderer _renderer;
-        private Material _material;
-        private MaterialPropertyBlock _mpb;
-        
 
         private void Awake() {
             _meshFilter = GetComponent<MeshFilter>();
-            _renderer = GetComponent<MeshRenderer>();
-            _material = _renderer.material;
-            _mpb = new MaterialPropertyBlock();
-            _renderer.GetPropertyBlock(_mpb);
             
             InitSeaSize();
-            InitRenderTexture();
-        }
-        
-        private void InitRenderTexture() {
-            // 初始化存储波浪高度和法线信息的 RenderTexture
-            _surfaceInputData = new RenderTexture(1024, 1024, 0, RenderTextureFormat.ARGBFloat);
-            _surfaceInputData.enableRandomWrite = true;
-            _surfaceInputData.Create();
-
-            // 将 RenderTexture 传递给材质
-            _material.SetTexture(SurfaceInputData, _surfaceInputData);
-            
-            _displayTexture = new Texture2D(1024, 1024, TextureFormat.RGBA32, false);
+            InitShader();
+            InitComputeShader();
         }
 
         Vector2 SeaSize {
@@ -85,13 +68,11 @@ namespace CartoonSea3D {
         void Update() {
             UpdateTime();
             UpdateComputeShader();
-            UpdateMaterial();
+            UpdateFloatingObjs();
         }
         
         private void OnDestroy() {
-            if (_surfaceInputData != null) {
-                _surfaceInputData.Release();
-            }
+            _waveDataBuffer?.Release();
         }
         
         private float _timer;
@@ -109,103 +90,105 @@ namespace CartoonSea3D {
             _renderer.SetPropertyBlock(_mpb);
             waveComputeShader.SetVector(CustomTime, t);
         }
+
+        #region Shader相关
+        private MeshRenderer _renderer;
+        private Material _material;
+        private MaterialPropertyBlock _mpb;
+
+        private void InitShader() {
+            _renderer = GetComponent<MeshRenderer>();
+            _material = _renderer.material;
+            _mpb = new MaterialPropertyBlock();
+            _renderer.GetPropertyBlock(_mpb);
+        }
+        #endregion
+        
+        #region 计算Shader相关
+        public ComputeShader waveComputeShader;
+        private int _csKernel;
+        private Vector2Int _csThreadGroups;
+        private ComputeBuffer _waveDataBuffer;
+        private int _bufferSize;
         
         private static readonly int CustomTime = Shader.PropertyToID("_CustomTime");
-        private static readonly int SurfaceInputData = Shader.PropertyToID("_SurfaceInputData");
+        private static readonly int WaveData = Shader.PropertyToID("_WaveData");
         private static readonly int Noise = Shader.PropertyToID("_Noise");
         private static readonly int WaveDensity = Shader.PropertyToID("_WaveDensity");
         private static readonly int WaveHeight = Shader.PropertyToID("_WaveHeight");
         private static readonly int WaveSpeed = Shader.PropertyToID("_WaveSpeed");
         private static readonly int Size = Shader.PropertyToID("_SeaSize");
         
-        #region 计算Shader相关
-        public ComputeShader waveComputeShader;
-        private RenderTexture _surfaceInputData;
-        
-        private static readonly int Result = Shader.PropertyToID("_Result");
-        
-        private void UpdateComputeShader() {
+        private void InitComputeShader() {
+            int textureWidth = baseWaveConfig.noiseTexture.width;
+            int textureHeight = baseWaveConfig.noiseTexture.height;
+            _csThreadGroups = new Vector2Int(Mathf.CeilToInt(textureWidth / 8.0f), Mathf.CeilToInt(textureHeight / 8.0f));
+            _bufferSize = textureWidth * textureHeight; // 计算缓冲区大小
+            _waveDataBuffer = new ComputeBuffer(_bufferSize, sizeof(float) * 4, ComputeBufferType.Default); // float4: 法线XYZ + 高度W
+            
             // 设置Compute Shader的参数
-            int kernel = waveComputeShader.FindKernel("CSMain");
+            _csKernel = waveComputeShader.FindKernel("CSMain");
             waveComputeShader.SetFloat(WaveSpeed, baseWaveConfig.waveSpeed);
             waveComputeShader.SetFloat(WaveHeight, baseWaveConfig.waveHeight);
             waveComputeShader.SetVector(WaveDensity, new Vector2(baseWaveConfig.waveDensity, baseWaveConfig.waveDensity));
-            waveComputeShader.SetVector(CustomTime, new Vector4(_timer, _timer * 2, _timer * 3, 1.0f / _timer));
             waveComputeShader.SetVector(Size, SeaSize);
+            waveComputeShader.SetTexture(_csKernel, Noise, baseWaveConfig.noiseTexture);
+            waveComputeShader.SetBuffer(_csKernel, WaveData, _waveDataBuffer);
             
-            // 设置噪声纹理等相关数据
-            waveComputeShader.SetTexture(kernel, Noise, baseWaveConfig.noiseTexture);
-            waveComputeShader.SetTexture(kernel, Result, _surfaceInputData);
-
-            // 运行Compute Shader
-            waveComputeShader.Dispatch(kernel, _surfaceInputData.width / 8, _surfaceInputData.height / 8, 1);
+            _material.SetBuffer(WaveData, _waveDataBuffer);
         }
 
-        private Texture2D _displayTexture; // 用于显示A通道的Texture2D
-        private void OnGUI() {
-            RenderTexture.active = _surfaceInputData; // 设置为当前RenderTexture
-            _displayTexture.ReadPixels(new Rect(0, 0, _surfaceInputData.width, _surfaceInputData.height), 0, 0); // 读取当前RenderTexture的像素数据
-            _displayTexture.Apply(); // 应用更改
-            RenderTexture.active = null; // 重置为null
-            for (int x = 0; x < _displayTexture.width; x++) {
-                for (int y = 0; y < _displayTexture.height; y++) {
-                    Color color = _displayTexture.GetPixel(x, y); // 获取当前像素的颜色
-                    // 将RGB设为0，只保留A通道值，其他通道设置为黑色
-                    _displayTexture.SetPixel(x, y, new Color(0, 0, 0, color.a));
-                }
+        private void UpdateComputeShader() {
+            waveComputeShader.Dispatch(_csKernel, _csThreadGroups.x, _csThreadGroups.y, 1);
+
+            // 在需要调试的地方插入此代码
+            float4[] waveData = new float4[_bufferSize];
+            // 获取 GPU 中的 ComputeBuffer 数据
+            _waveDataBuffer.GetData(waveData);
+            // 输出第一个数据来检查结果
+            Debug.Log($"Wave Data: {waveData[0]}");
+        }
+
+        #endregion
+
+        #region 漂浮物品管理
+        public List<Transform> floatingObjs = new List<Transform>();
+        private Dictionary<SeaFloatingObjCtrl, Transform> _floatingObjsDict = new Dictionary<SeaFloatingObjCtrl, Transform>();
+
+        private void UpdateFloatingObjs() {
+            foreach (var obj in floatingObjs) {
+                UpdateFloatingObjTransform(obj);
             }
-            _displayTexture.Apply(); // 应用更改
-            
-            GUI.DrawTexture(new Rect(0, 0, 1024, 1024), _surfaceInputData); // 可视化 RenderTexture
+        }
+
+        public void UpdateFloatingObjTransform(Transform t) {
+            // 根据物体的位置计算其在海面上的UV坐标（假设海面为XZ平面）
+            Vector3 objPos = t.position;
+            float normalizedX = Mathf.InverseLerp(-_seaSize.x / 2f, _seaSize.x / 2f, objPos.x);
+            float normalizedZ = Mathf.InverseLerp(-_seaSize.y / 2f, _seaSize.y / 2f, objPos.z);
+
+            // 将归一化的X和Z坐标转换为ComputeBuffer中的索引
+            int texelX = Mathf.FloorToInt(normalizedX * _seaSize.x);
+            int texelZ = Mathf.FloorToInt(normalizedZ * _seaSize.y);
+            int index = texelX + texelZ * (int)_seaSize.x;
+
+            if (index < 0 || index >= _waveData.Length) {
+                Debug.LogWarning("Object out of wave data bounds.");
+                return;
+            }
+
+            // 从波浪数据中获取高度和法线信息
+            float waveHeight = _waveData[index].w; // 高度存储在w分量
+            Vector3 waveNormal =
+                new Vector3(_waveData[index].x, _waveData[index].y, _waveData[index].z); // 法线存储在x, y, z分量
+
+            // 更新物体的位置：将y坐标设置为波浪的高度
+            t.position = new Vector3(objPos.x, waveHeight, objPos.z);
+
+            // 更新物体的旋转：使其朝向法线
+            t.rotation = Quaternion.FromToRotation(Vector3.up, waveNormal);
         }
 
         #endregion
-
-        #region 渲染Shader相关
-
-        private void UpdateMaterial() {
-            // 每帧更新材质中的 RenderTexture
-            _material.SetTexture(SurfaceInputData, _surfaceInputData);
-        }
-        
-        
-        #endregion
-
-        // private void  SetObjOnSurface(Transform t) {
-        //     // 获取物体的世界位置
-        //     Vector3 worldPos = t.position;
-        //
-        //     // 将世界坐标转换为 UV 坐标
-        //     float u = worldPos.x / textureWidth;  // 根据你的纹理宽度进行转换
-        //     float v = worldPos.z / textureHeight; // 根据你的纹理高度进行转换
-        //
-        //     // 确保 UV 坐标在 [0, 1] 范围内
-        //     u = Mathf.Clamp01(u);
-        //     v = Mathf.Clamp01(v);
-        //
-        //     // 从 RenderTexture 中读取数据
-        //     RenderTexture.active = _surfaceOutputData; // outputTexture 是你的 RenderTexture
-        //     Texture2D tempTexture = new Texture2D(1, 1);
-        //     tempTexture.ReadPixels(new Rect(u * _surfaceOutputData.width, v * _surfaceOutputData.height, 1, 1), 0, 0);
-        //     tempTexture.Apply();
-        //     RenderTexture.active = null;
-        //
-        //     // 获取表面数据（假设存储在 RGBA 中）
-        //     Color surfaceData = tempTexture.GetPixel(0, 0);
-        //
-        //     // 计算海面高度
-        //     float height = surfaceData.a; // 高度存储在 A 通道
-        //
-        //     // 设置物体的新位置
-        //     Vector3 newPosition = new Vector3(worldPos.x, height, worldPos.z);
-        //     t.position = newPosition;
-        //
-        //     // 获取法线信息
-        //     Vector3 normal = new Vector3(surfaceData.r * 2 - 1, surfaceData.g * 2 - 1, surfaceData.b * 2 - 1).normalized; // 法线信息存储在 RGB 通道
-        //
-        //     // 设置物体的旋转方向
-        //     Quaternion targetRotation = Quaternion.LookRotation(normal);
-        //     t.rotation = targetRotation;
-        // }
     }
 }

@@ -20,8 +20,6 @@ Shader "3D/Cartoon/Sea"
         _WaveSpeed ("Wave Speed", Float) = 1.0
         _WaveHeight ("Wave Height", Float) = 0.5
         _WaveDensity ("Wave Density", Float) = 1
-        
-        _SurfaceInputData("Surface Input Data", 2D) = "white" {} // 水面信息输出(r,g,b法线,a高度)
     }
     SubShader
     {
@@ -59,8 +57,8 @@ Shader "3D/Cartoon/Sea"
             uniform float _WaveSpeed;
             uniform float _WaveHeight;
             uniform float _WaveDensity;
-
-            sampler2D _SurfaceInputData;
+            
+            StructuredBuffer<float4> _WaveData;// 从 ComputeBuffer 中读取波浪数据 (法线 + 高度)
             
             struct appdata
             {
@@ -83,9 +81,11 @@ Shader "3D/Cartoon/Sea"
                 v2f o;
                 o.noiseUV = TRANSFORM_TEX(v.uv, _SurfaceNoise);
 
+                // 计算顶点索引，用于从 ComputeBuffer 获取波浪数据
+                uint index = (uint)(v.vertex.x + v.vertex.z);
                 // 从 ComputeShader 的输出纹理中读取波浪高度和法线
-                float4 waveData = tex2Dlod(_SurfaceInputData, float4(o.noiseUV, 0, 0));
-                float waveHeight = waveData.a; // 获取高度信息
+                float4 waveData = _WaveData[index];
+                float waveHeight = waveData.w; // 获取高度信息
                 v.vertex.y += waveHeight;
                 
                 // 更新顶点位置

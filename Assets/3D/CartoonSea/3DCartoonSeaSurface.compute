@@ -1,35 +1,32 @@
 #pragma kernel CSMain
 float4 _CustomTime;
-float2 _SeaSize;
 float _WaveSpeed;
 float _WaveHeight;
 float2 _WaveDensity;
 
 Texture2D _Noise; // 噪声纹理
-RWTexture2D<float4> _Result;
+RWStructuredBuffer<float4> _WaveData; // 存储波浪法线 + 高度
 
 [numthreads(8,8,1)]
 void CSMain (uint3 id : SV_DispatchThreadID)
 {
-    // 获取当前像素坐标
-    int2 texelIndex = int2(id.xy);
-
+    // 获取 UV 坐标
     int textureWidth, textureHeight;
     _Noise.GetDimensions(textureWidth, textureHeight);
     float2 textureResolution = float2(textureWidth, textureHeight);
-
-    // 计算实际 UV 坐标，以适配不同海面大小和贴图分辨率
-    float2 uv = (float2(texelIndex) / textureResolution) * _SeaSize;
-
-    // 使用 WaveDensity 调整 UV 坐标的比例，改变噪声采样的缩放
-    uv *= _WaveDensity;
-
-    // 计算波浪效果
+    
+    // 获取当前顶点的索引
+    uint index = id.x + id.y * textureResolution.x;
+    float2 uv = float2(id.xy) / textureResolution;
+    uv *= _WaveDensity;// 使用 WaveDensity 调整 UV 坐标的比例，改变噪声采样的缩放
     float waveSpeed = _CustomTime.y * _WaveSpeed;
-    float noise = _Noise.Load(int3(uv + waveSpeed, 0)).r;
+    uv += float2(waveSpeed, waveSpeed);
+
+    int2 texelIndex = int2(uv * textureResolution); // 将 UV 坐标转换为整数像素坐标
+    float noise = _Noise.Load(int3(texelIndex, 0)).r; // 使用整数索引进行采样
     float height = noise * _WaveHeight;
 
-    // 计算相邻顶点的高度来计算法线
+    // 计算相邻顶点的高度来推导法线
     float heightLeft = _Noise.Load(int3(uv + float2(-1 / textureResolution.x, 0), 0)).r * _WaveHeight;
     float heightRight = _Noise.Load(int3(uv + float2(1 / textureResolution.x, 0), 0)).r * _WaveHeight;
     float heightUp = _Noise.Load(int3(uv + float2(0, -1 / textureResolution.y), 0)).r * _WaveHeight;
@@ -38,6 +35,6 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     // 计算法线
     float3 normal = normalize(float3(heightLeft - heightRight, 1, heightUp - heightDown));
 
-    // 输出法线和高度到 _SurfaceOutputData
-    _Result[texelIndex] = float4(normal * 0.5 + 0.5, height);
+    // 将法线和高度存储到 ComputeBuffer 中
+    _WaveData[index] = float4(normal * 0.5 + 0.5, height);
 }
