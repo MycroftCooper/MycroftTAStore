@@ -3,21 +3,22 @@ Shader "3D/Cartoon/Sea"
     Properties
     {
         _CustomTime ("Custom Time", Vector) = (0, 0, 0, 0)
-        _ShallowWaterColor ("Shallow Water Color", Color) = (0.0, 0.8, 1.0, 0.5)// 浅水颜色
-        _DeepWaterColor ("Deep Water Color", Color) = (0.0, 0.1, 0.5, 1.0)      // 深水颜色
-        _MaxDepth ("Max Depth", Float) = 10                                       // 最深水深
         
-        _FoamColor("Foam Color", Color) = (1,1,1,1)
-        _SurfaceNoise("Surface Noise", 2D) = "white" {}
-        _SurfaceNoiseCutoff("Surface Noise Cutoff", Range(0, 1)) = 0.777
+        _FoamColor("Foam Color", Color) = (1,1,1,1)                             // 浪花颜色
         _FoamMaxDistance("Foam Maximum Distance", Float) = 0.4
         _FoamMinDistance("Foam Minimum Distance", Float) = 0.04
-        _SurfaceNoiseScroll("Surface Noise Scroll Amount", Vector) = (0.03, 0.03, 0, 0)
+        _FoamMoveVelocity("Foam Move Velocity", Vector) = (0.03, 0.03, 0, 0)
         
-        _SurfaceDistortion("Surface Distortion", 2D) = "white" {}
+        _ShallowWaterColor ("Shallow Water Color", Color) = (0.0, 0.8, 1.0, 0.5)// 浅水颜色
+        _DeepWaterColor ("Deep Water Color", Color) = (0.0, 0.1, 0.5, 1.0)      // 深水颜色
+        _MaxDepth ("Max Depth", Float) = 10                                         // 最深水深
+        
+        _SurfaceNoise("Surface Noise", 2D) = "white" {}                             // 基础噪声图
+        _SurfaceNoiseCutoff("Surface Noise Cutoff", Range(0, 1)) = 0.777
+        _SurfaceDistortion("Surface Distortion", 2D) = "white" {}                   // 扰动噪声图
         _SurfaceDistortionAmount("Surface Distortion Amount", Range(0, 1)) = 0.27
         
-        _WaveSpeed ("Wave Speed", Float) = 1.0
+        _WaveMoveVelocity ("Wave Move Velocity", Vector) = (0.4, 0.4, 0, 0)
         _WaveHeight ("Wave Height", Float) = 0.5
         _WaveDensity ("Wave Density", Float) = 1
     }
@@ -36,25 +37,27 @@ Shader "3D/Cartoon/Sea"
             #define SMOOTHSTEP_AA 0.01
 
             uniform float4 _CustomTime;
+
+            uniform float4 _FoamColor;
+            uniform float _FoamMaxDistance;
+            uniform float _FoamMinDistance;
+            uniform float2 _FoamMoveVelocity;
+            
             uniform float4 _ShallowWaterColor;
             uniform float4 _DeepWaterColor;
             uniform float _MaxDepth;
+
+            uniform sampler2D _SurfaceNoise;
+            uniform float _SurfaceNoiseCutoff;
+            uniform float4 _SurfaceNoise_ST;
+            uniform sampler2D _SurfaceDistortion;
+            uniform float _SurfaceDistortionAmount;
+            uniform float4 _SurfaceDistortion_ST;
+            
             uniform sampler2D _CameraDepthTexture; // 相机深度纹理
             uniform sampler2D _CameraNormalsTexture; // 相机法线纹理
 
-            uniform float4 _FoamColor;
-            uniform sampler2D _SurfaceNoise;
-            uniform float4 _SurfaceNoise_ST;
-            uniform float _SurfaceNoiseCutoff;
-            uniform float _FoamMaxDistance;
-            uniform float _FoamMinDistance;
-            uniform float2 _SurfaceNoiseScroll;
-
-            uniform sampler2D _SurfaceDistortion;
-            uniform float4 _SurfaceDistortion_ST;
-            uniform float _SurfaceDistortionAmount;
-
-            uniform float _WaveSpeed;
+            uniform float2 _WaveMoveVelocity;
             uniform float _WaveHeight;
             uniform float _WaveDensity;
             
@@ -79,20 +82,27 @@ Shader "3D/Cartoon/Sea"
             v2f vert (appdata v)
             {
                 v2f o;
-                o.noiseUV = TRANSFORM_TEX(v.uv, _SurfaceNoise);
+                // 从 _WaveMoveVelocity 中获取 x 轴和 y 轴的波浪速度
+                float xSpeed = _WaveMoveVelocity.x; // x 轴方向的速度
+                float ySpeed = _WaveMoveVelocity.y; // y 轴方向的速度
 
-                // 计算顶点索引，用于从 ComputeBuffer 获取波浪数据
-                uint index = (uint)(v.vertex.x + v.vertex.z);
-                // 从 ComputeShader 的输出纹理中读取波浪高度和法线
-                float4 waveData = _WaveData[index];
-                float waveHeight = waveData.w; // 获取高度信息
-                v.vertex.y += waveHeight;
-                
-                // 更新顶点位置
+                // 计算波浪时间：时间与各个方向的速度成正比
+                float waveTimeX = _CustomTime.y * xSpeed; // x 方向的波浪时间
+                float waveTimeY = _CustomTime.y * ySpeed; // y 方向的波浪时间
+
+                // 根据顶点的 x 和 y 坐标以及波浪时间来计算波浪的高度
+                float waveFactor = sin(v.vertex.x * _WaveDensity + waveTimeX) * sin(v.vertex.z * _WaveDensity + waveTimeY);
+
+                // 更新顶点的高度
+                v.vertex.y += waveFactor * _WaveHeight;
+
+                // 计算顶点在屏幕中的位置
                 o.pos = UnityObjectToClipPos(v.vertex);
-                o.screenPos = ComputeScreenPos(o.pos); // 获取屏幕坐标
+                o.screenPos = ComputeScreenPos(o.pos);
                 o.distortUV = TRANSFORM_TEX(v.uv, _SurfaceDistortion);
+                o.noiseUV = TRANSFORM_TEX(v.uv, _SurfaceNoise);
                 o.viewNormal = COMPUTE_VIEW_NORMAL;
+
                 return o;
             }
 
@@ -118,7 +128,7 @@ Shader "3D/Cartoon/Sea"
 
             float4 calculateWaveColorByDepth(v2f i, float deep)
             {
-                float2 uv = float2(i.noiseUV.x + _CustomTime.y * _SurfaceNoiseScroll.x, i.noiseUV.y + _CustomTime.y * _SurfaceNoiseScroll.y);
+                float2 uv = float2(i.noiseUV.x + _CustomTime.y * _FoamMoveVelocity.x, i.noiseUV.y + _CustomTime.y * _FoamMoveVelocity.y);
                 float2 distortSample = (tex2D(_SurfaceDistortion, i.distortUV).xy * 2 - 1) * _SurfaceDistortionAmount;
                 uv += distortSample;
                 float surfaceNoiseSample = tex2D(_SurfaceNoise, uv).r;
