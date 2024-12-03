@@ -61,7 +61,7 @@ Shader "3D/Cartoon/Sea"
             uniform float _WaveHeight;
             uniform float _WaveDensity;
             
-            StructuredBuffer<float4> _WaveData;// 从 ComputeBuffer 中读取波浪数据 (法线 + 高度)
+            float4 _ModelPosition;
             
             struct appdata
             {
@@ -90,8 +90,12 @@ Shader "3D/Cartoon/Sea"
                 float waveTimeX = _CustomTime.y * xSpeed; // x 方向的波浪时间
                 float waveTimeY = _CustomTime.y * ySpeed; // y 方向的波浪时间
 
+                // 使用 _ModelPosition 而不是世界坐标
+                float xCoord = v.vertex.x + _ModelPosition.x;
+                float zCoord = v.vertex.z + _ModelPosition.z;
+
                 // 根据顶点的 x 和 y 坐标以及波浪时间来计算波浪的高度
-                float waveFactor = sin(v.vertex.x * _WaveDensity + waveTimeX) * sin(v.vertex.z * _WaveDensity + waveTimeY);
+                float waveFactor = sin(xCoord * _WaveDensity + waveTimeX) * sin(zCoord * _WaveDensity + waveTimeY);
 
                 // 更新顶点的高度
                 v.vertex.y += waveFactor * _WaveHeight;

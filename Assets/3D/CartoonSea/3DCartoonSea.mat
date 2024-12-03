@@ -132,12 +132,15 @@ Material:
     m_Colors:
     - _BaseColor: {r: 1, g: 1, b: 1, a: 1}
     - _Color: {r: 1, g: 1, b: 1, a: 1}
+    - _CustomTime: {r: 0, g: 0, b: 0, a: 0}
     - _DeepWaterColor: {r: 0, g: 0.22, b: 0.5019608, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
     - _FoamColor: {r: 0.740566, g: 0.99662924, b: 1, a: 1}
+    - _FoamMoveVelocity: {r: 0.03, g: 0.03, b: 0, a: 0}
     - _ShallowWaterColor: {r: 0, g: 0.8328996, b: 1, a: 0.5}
     - _SpecColor: {r: 0.19999996, g: 0.19999996, b: 0.19999996, a: 1}
     - _SurfaceNoiseScroll: {r: 0.03, g: 0.03, b: 0, a: 0}
+    - _WaveMoveVelocity: {r: 0.4, g: 0.4, b: 0, a: 0}
   m_BuildTextureStacks: []
 --- !u!114 &4497863477971312940
 MonoBehaviour:

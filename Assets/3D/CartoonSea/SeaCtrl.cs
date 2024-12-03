@@ -10,13 +10,13 @@ namespace CartoonSea3D {
         public Color deepWaterColor = new Color(0f, 0.1f, 0.5f, 1f);
         public Color foamColor = Color.white;
         
-        public float waveSpeed = 0.01f;
-        public float waveHeight = 0.4f;
-        public float waveDensity = 0.5f;
+        public float waveSpeed = 0.01f; // 波浪速度
+        public float waveHeight = 0.4f; // 波浪高度
+        public float waveDensity = 0.5f; // 波浪密度
+        public Vector2 waveMoveVelocity = new Vector2(0.4f, 0.4f); // 波浪运动的方向速度（X、Y）
     }
     
     public class SeaCtrl : MonoBehaviour {
-        private static readonly int CustomTime = Shader.PropertyToID("_CustomTime");
         public BaseWaveConfig baseWaveConfig;
         public bool isPause;
         public Vector2 initSeaSize = new Vector2(10, 10);
@@ -26,7 +26,6 @@ namespace CartoonSea3D {
 
         private void Awake() {
             _meshFilter = GetComponent<MeshFilter>();
-            
             InitSeaSize();
             InitShader();
         }
@@ -70,6 +69,7 @@ namespace CartoonSea3D {
         }
         
         private float _timer;
+        private Vector4 _customTime;
         private void UpdateTime() {
             if (isPause) {
                 return;
@@ -79,8 +79,8 @@ namespace CartoonSea3D {
             float timeY = _timer * 2;
             float timeZ = _timer * 3;
             float timeW = 1.0f / _timer;
-            var t = new Vector4(timeX, timeY, timeZ, timeW);
-            _mpb.SetVector(CustomTime, t);
+            _customTime = new Vector4(timeX, timeY, timeZ, timeW);
+            _mpb.SetVector(CustomTime, _customTime);
             _renderer.SetPropertyBlock(_mpb);
         }
 
@@ -88,13 +88,46 @@ namespace CartoonSea3D {
         private MeshRenderer _renderer;
         private Material _material;
         private MaterialPropertyBlock _mpb;
+        
+        private static readonly int CustomTime = Shader.PropertyToID("_CustomTime");
+        private static readonly int WaveMoveVelocity = Shader.PropertyToID("_WaveMoveVelocity");
+        private static readonly int WaveHeight = Shader.PropertyToID("_WaveHeight");
+        private static readonly int WaveDensity = Shader.PropertyToID("_WaveDensity");
+        private static readonly int ModelPosition = Shader.PropertyToID("_ModelPosition");
+        private static readonly int FoamColor = Shader.PropertyToID("_FoamColor");
+        private static readonly int ShallowWaterColor = Shader.PropertyToID("_ShallowWaterColor");
+        private static readonly int DeepWaterColor = Shader.PropertyToID("_DeepWaterColor");
+        private static readonly int SurfaceNoise = Shader.PropertyToID("_SurfaceNoise");
 
         private void InitShader() {
             _renderer = GetComponent<MeshRenderer>();
             _material = _renderer.material;
             _mpb = new MaterialPropertyBlock();
             _renderer.GetPropertyBlock(_mpb);
+            SetUpShaderProperty();
         }
+
+        public void SetUpShaderProperty() {
+            // 计算世界坐标下的模型位置
+            Vector3 worldPos = transform.position;
+            Vector3 modelPos = _renderer.localToWorldMatrix.inverse.MultiplyPoint(worldPos);
+
+            // 设置Shader属性
+            _mpb.SetVector(ModelPosition, modelPos);
+            _mpb.SetFloat(WaveHeight, baseWaveConfig.waveHeight);
+            _mpb.SetFloat(WaveDensity, baseWaveConfig.waveDensity);
+            _mpb.SetVector(WaveMoveVelocity, baseWaveConfig.waveMoveVelocity);
+            _mpb.SetColor(FoamColor, baseWaveConfig.foamColor);
+            _mpb.SetColor(ShallowWaterColor, baseWaveConfig.shallowWaterColor);
+            _mpb.SetColor(DeepWaterColor, baseWaveConfig.deepWaterColor);
+
+            // 设置纹理
+            _mpb.SetTexture(SurfaceNoise, baseWaveConfig.noiseTexture);
+
+            // 将MaterialPropertyBlock应用到Renderer
+            _renderer.SetPropertyBlock(_mpb);
+        }
+
         #endregion
 
         #region 漂浮物品管理
@@ -108,31 +141,14 @@ namespace CartoonSea3D {
         }
 
         public void UpdateFloatingObjTransform(Transform t) {
-            // // 根据物体的位置计算其在海面上的UV坐标（假设海面为XZ平面）
-            // Vector3 objPos = t.position;
-            // float normalizedX = Mathf.InverseLerp(-_seaSize.x / 2f, _seaSize.x / 2f, objPos.x);
-            // float normalizedZ = Mathf.InverseLerp(-_seaSize.y / 2f, _seaSize.y / 2f, objPos.z);
-            //
-            // // 将归一化的X和Z坐标转换为ComputeBuffer中的索引
-            // int texelX = Mathf.FloorToInt(normalizedX * _seaSize.x);
-            // int texelZ = Mathf.FloorToInt(normalizedZ * _seaSize.y);
-            // int index = texelX + texelZ * (int)_seaSize.x;
-            //
-            // if (index < 0 || index >= _waveData.Length) {
-            //     Debug.LogWarning("Object out of wave data bounds.");
-            //     return;
-            // }
-            //
-            // // 从波浪数据中获取高度和法线信息
-            // float waveHeight = _waveData[index].w; // 高度存储在w分量
-            // Vector3 waveNormal =
-            //     new Vector3(_waveData[index].x, _waveData[index].y, _waveData[index].z); // 法线存储在x, y, z分量
-            //
-            // // 更新物体的位置：将y坐标设置为波浪的高度
-            // t.position = new Vector3(objPos.x, waveHeight, objPos.z);
-            //
-            // // 更新物体的旋转：使其朝向法线
-            // t.rotation = Quaternion.FromToRotation(Vector3.up, waveNormal);
+            // 计算漂浮物体的 Y 坐标，使其随波浪浮动
+            Vector3 position = t.position;
+            float waveHeight = Mathf.Sin(position.x * baseWaveConfig.waveDensity + _customTime.y * baseWaveConfig.waveMoveVelocity.x) *
+                               Mathf.Sin(position.z * baseWaveConfig.waveDensity + _customTime.y * baseWaveConfig.waveMoveVelocity.y) *
+                               baseWaveConfig.waveHeight;
+
+            position.y = waveHeight; // 更新漂浮物体的高度
+            t.position = position;
         }
 
         #endregion
