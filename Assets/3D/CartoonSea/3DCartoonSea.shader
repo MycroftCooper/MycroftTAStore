@@ -3,6 +3,7 @@ Shader "3D/Cartoon/Sea"
     Properties
     {
         _CustomTime ("Custom Time", Vector) = (0, 0, 0, 0)
+        _OPos ("O Pos", Vector) = (0, 0, 0, 0)
         
         _FoamColor("Foam Color", Color) = (1,1,1,1)                             // 浪花颜色
         _FoamMaxDistance("Foam Maximum Distance", Float) = 0.4
@@ -37,6 +38,7 @@ Shader "3D/Cartoon/Sea"
             #define SMOOTHSTEP_AA 0.01
 
             uniform float4 _CustomTime;
+            float4 _OPos;
 
             uniform float4 _FoamColor;
             uniform float _FoamMaxDistance;
@@ -60,8 +62,6 @@ Shader "3D/Cartoon/Sea"
             uniform float2 _WaveMoveVelocity;
             uniform float _WaveHeight;
             uniform float _WaveDensity;
-            
-            float4 _ModelPosition;
             
             struct appdata
             {
@@ -91,8 +91,8 @@ Shader "3D/Cartoon/Sea"
                 float waveTimeY = _CustomTime.y * ySpeed; // y 方向的波浪时间
 
                 // 使用 _ModelPosition 而不是世界坐标
-                float xCoord = v.vertex.x + _ModelPosition.x;
-                float zCoord = v.vertex.z + _ModelPosition.z;
+                float xCoord = v.vertex.x + _OPos.x;
+                float zCoord = v.vertex.z + _OPos.z;
 
                 // 根据顶点的 x 和 y 坐标以及波浪时间来计算波浪的高度
                 float waveFactor = sin(xCoord * _WaveDensity + waveTimeX) * sin(zCoord * _WaveDensity + waveTimeY);
@@ -132,10 +132,11 @@ Shader "3D/Cartoon/Sea"
 
             float4 calculateWaveColorByDepth(v2f i, float deep)
             {
-                float2 uv = float2(i.noiseUV.x + _CustomTime.y * _FoamMoveVelocity.x, i.noiseUV.y + _CustomTime.y * _FoamMoveVelocity.y);
+                float2 uv = i.noiseUV + _OPos.xz + _CustomTime.y * _FoamMoveVelocity;
                 float2 distortSample = (tex2D(_SurfaceDistortion, i.distortUV).xy * 2 - 1) * _SurfaceDistortionAmount;
                 uv += distortSample;
-                float surfaceNoiseSample = tex2D(_SurfaceNoise, uv).r;
+                float2 mirroredUV = abs(frac(uv) * 2.0 - 1.0); // 镜像UV，确保无缝
+                float surfaceNoiseSample = tex2D(_SurfaceNoise, mirroredUV).r;
 
                 float3 normal = tex2Dproj(_CameraNormalsTexture, UNITY_PROJ_COORD(i.screenPos));
                 float3 normalDot = saturate(dot(normal, i.viewNormal));

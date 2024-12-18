@@ -93,7 +93,7 @@ namespace CartoonSea3D {
         private static readonly int WaveMoveVelocity = Shader.PropertyToID("_WaveMoveVelocity");
         private static readonly int WaveHeight = Shader.PropertyToID("_WaveHeight");
         private static readonly int WaveDensity = Shader.PropertyToID("_WaveDensity");
-        private static readonly int ModelPosition = Shader.PropertyToID("_ModelPosition");
+        private static readonly int OPos = Shader.PropertyToID("_OPos");
         private static readonly int FoamColor = Shader.PropertyToID("_FoamColor");
         private static readonly int ShallowWaterColor = Shader.PropertyToID("_ShallowWaterColor");
         private static readonly int DeepWaterColor = Shader.PropertyToID("_DeepWaterColor");
@@ -108,12 +108,8 @@ namespace CartoonSea3D {
         }
 
         public void SetUpShaderProperty() {
-            // 计算世界坐标下的模型位置
-            Vector3 worldPos = transform.position;
-            Vector3 modelPos = _renderer.localToWorldMatrix.inverse.MultiplyPoint(worldPos);
-
             // 设置Shader属性
-            _mpb.SetVector(ModelPosition, modelPos);
+            _mpb.SetVector(OPos, transform.position);
             _mpb.SetFloat(WaveHeight, baseWaveConfig.waveHeight);
             _mpb.SetFloat(WaveDensity, baseWaveConfig.waveDensity);
             _mpb.SetVector(WaveMoveVelocity, baseWaveConfig.waveMoveVelocity);
