@@ -1,6 +1,4 @@
-// Upgrade NOTE: upgraded instancing buffer 'Props' to new syntax.
-
-Shader "2D/SimpleEllipseShadow_InwardBlur_TwoFloats_Instanced"
+Shader "2D/SimpleEllipseShadow"
 {
     Properties
     {
